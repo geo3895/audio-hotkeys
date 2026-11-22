@@ -162,7 +162,3 @@ script**; the log will show whether presses were arriving before that.
 - Errors are caught and logged instead of raising a modal dialog, because a
   dialog raised from a hotkey thread blocks the script's message loop and every
   hotkey goes dead while the process still looks healthy.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
