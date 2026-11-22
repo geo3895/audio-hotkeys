@@ -116,19 +116,19 @@ class Hud {
     static alpha := 0
     static phase := ""
     static t0 := 0
-    static W := 330, H := 76, M := 24, Top := 56
+    static W := 168, H := 40, M := 24, Top := 56
     static HoldMs := 950
     static timer := 0
 
     static Build() {
         g := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x08000000 -DPIScale", "AudioHud")
         g.BackColor := "1C1C1E"
-        g.SetFont("s20", "Segoe MDL2 Assets")
-        this.iconCtl := g.AddText("x18 y14 w34 h44 BackgroundTrans", "")
-        g.SetFont("s11 bold", "Segoe UI")
-        this.titleCtl := g.AddText("x60 y14 w250 h22 BackgroundTrans", "")
-        g.SetFont("s9 norm", "Segoe UI")
-        this.subCtl := g.AddText("x60 y38 w250 h20 BackgroundTrans", "")
+        g.SetFont("s12", "Segoe MDL2 Assets")
+        this.iconCtl := g.AddText("x10 y7 w24 h26 BackgroundTrans", "")
+        g.SetFont("s9 bold", "Segoe UI")
+        this.titleCtl := g.AddText("x38 y10 w122 h20 BackgroundTrans", "")
+        g.SetFont("s8 norm", "Segoe UI")
+        this.subCtl := g.AddText("x38 y30 w122 h12 BackgroundTrans", "")
         this.gui := g
     }
 
@@ -156,7 +156,7 @@ class Hud {
 
     static Round(hwnd) {
         h := DllCall("gdi32\CreateRoundRectRgn", "int", 0, "int", 0, "int", this.W + 1
-                    , "int", this.H + 1, "int", 18, "int", 18, "ptr")
+                    , "int", this.H + 1, "int", 12, "int", 12, "ptr")
         DllCall("user32\SetWindowRgn", "ptr", hwnd, "ptr", h, "int", 1)
     }
 
@@ -198,17 +198,17 @@ SpkState() => GetMute(0)
 AnnounceMic() {
     muted := MicState()
     if (muted)
-        Hud.Show(Chr(0xE720), "Microphone muted", "Press again to unmute", "FF4B4B", "FF8A8A")
+        Hud.Show(Chr(0xE720), "Microphone muted", "", "FF4B4B")
     else
-        Hud.Show(Chr(0xE720), "Microphone unmuted", "Press again to mute", "4CC26A", "8FCFA1")
+        Hud.Show(Chr(0xE720), "Microphone live", "", "4CC26A")
 }
 
 AnnounceSpk() {
     muted := SpkState()
     if (muted)
-        Hud.Show(Chr(0xE74F), "Speakers deafen", "Press again to unmute", "FF4B4B", "FF8A8A")
+        Hud.Show(Chr(0xE74F), "Speakers muted", "", "FF4B4B")
     else
-        Hud.Show(Chr(0xE767), "Speakers undeafen", "Press again to mute", "EEEEEE", "9A9A9F")
+        Hud.Show(Chr(0xE767), "Speakers live", "", "EEEEEE")
 }
 
 AnnounceVolume(flow) {
@@ -218,8 +218,8 @@ AnnounceVolume(flow) {
     bar := ""
     Loop 20
         bar .= (A_Index <= filled) ? Chr(0x2588) : Chr(0x2591)
-    name := (flow = 1) ? "Microphone" : "Speakers"
-    Hud.Show(Chr(0xE767), name "  " pct "%", (muted ? "muted  " : "") bar
+    name := (flow = 1) ? "Mic" : "Speakers"
+    Hud.Show(Chr(0xE767), name "  " pct "%" (muted ? "  muted" : ""), bar
            , muted ? "FF4B4B" : "EEEEEE", muted ? "FF8A8A" : "9A9A9F")
 }
 
@@ -252,8 +252,8 @@ ToggleBoth() {
         anyLive := !MicState() || !SpkState()
         SetMute(1, anyLive)
         SetMute(0, anyLive)
-        Hud.Show(anyLive ? Chr(0xE74F) : Chr(0xE767), anyLive ? "Mic + speakers muted" : "Mic + speakers live"
-               , "Press again to toggle both", anyLive ? "FF4B4B" : "4CC26A", anyLive ? "FF8A8A" : "8FCFA1")
+        Hud.Show(anyLive ? Chr(0xE74F) : Chr(0xE767), anyLive ? "Both muted" : "Both live"
+               , "", anyLive ? "FF4B4B" : "4CC26A")
     } catch as e {
         Log("toggle both FAILED: " e.Message " @ " e.Line)
     }
