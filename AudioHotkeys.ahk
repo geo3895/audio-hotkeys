@@ -17,6 +17,28 @@ Persistent
 ;  See README.md for install, autostart and rebinding.
 ;=============================================================
 
+;------------------------- CONFIG -----------------------------
+; One entry per feature. Nothing else in the file needs touching to
+; switch a feature off or to silence it.
+;
+;   enabled : is the hotkey live?
+;             true  -> the key is captured and toggles the device
+;             false -> the key is NOT captured at all; it reaches the
+;                      focused app as a normal keystroke. The tray menu
+;                      item still works, so the feature stays reachable.
+;
+;   toast   : does this feature show the on-screen confirmation?
+;             false -> it still works, just silently.
+;
+; After editing, use "Reload script" in the tray menu.
+
+CFG := {
+    mic:  { enabled: true, toast: true },   ; Numpad-  microphone mute toggle
+    spk:  { enabled: true, toast: true },   ; Numpad*  speakers mute toggle
+    both: { enabled: true, toast: true },   ; ^!+m     both devices at once
+    vol:  { enabled: true, toast: true }    ; volume steps
+}
+
 ;------------------------- Diagnostics ------------------------
 ; A modal error dialog raised from a hotkey thread blocks the script's message
 ; loop: the process stays alive but every hotkey goes dead and the keys fall
@@ -196,6 +218,8 @@ MicState() => GetMute(1)
 SpkState() => GetMute(0)
 
 AnnounceMic() {
+    if !CFG.mic.toast
+        return
     muted := MicState()
     if (muted)
         Hud.Show(Chr(0xE720), "Microphone muted", "", "FF4B4B")
@@ -204,6 +228,8 @@ AnnounceMic() {
 }
 
 AnnounceSpk() {
+    if !CFG.spk.toast
+        return
     muted := SpkState()
     if (muted)
         Hud.Show(Chr(0xE74F), "Speakers muted", "", "FF4B4B")
@@ -212,6 +238,8 @@ AnnounceSpk() {
 }
 
 AnnounceVolume(flow) {
+    if !CFG.vol.toast
+        return
     pct := Round(GetVolume(flow) * 100)
     muted := GetMute(flow)
     filled := Round(pct / 5)
@@ -252,8 +280,9 @@ ToggleBoth() {
         anyLive := !MicState() || !SpkState()
         SetMute(1, anyLive)
         SetMute(0, anyLive)
-        Hud.Show(anyLive ? Chr(0xE74F) : Chr(0xE767), anyLive ? "Both muted" : "Both live"
-               , "", anyLive ? "FF4B4B" : "4CC26A")
+        if CFG.both.toast
+            Hud.Show(anyLive ? Chr(0xE74F) : Chr(0xE767), anyLive ? "Both muted" : "Both live"
+                   , "", anyLive ? "FF4B4B" : "4CC26A")
     } catch as e {
         Log("toggle both FAILED: " e.Message " @ " e.Line)
     }
@@ -295,10 +324,10 @@ Restore(*) {
 BuildMenu() {
     Front := A_TrayMenu
     Front.Delete()
-    MicItem := "Toggle microphone  (Numpad-)"
+    MicItem := "Toggle microphone  (Numpad-)" (CFG.mic.enabled ? "" : "  [hotkey off]")
     Front.Add(MicItem, (*) => ToggleMic())
-    Front.Add("Toggle speakers  (Numpad*)", (*) => ToggleSpk())
-    Front.Add("Toggle both", (*) => ToggleBoth())
+    Front.Add("Toggle speakers  (Numpad*)" (CFG.spk.enabled ? "" : "  [hotkey off]"), (*) => ToggleSpk())
+    Front.Add("Toggle both" (CFG.both.enabled ? "" : "  [hotkey off]"), (*) => ToggleBoth())
     Front.Add()
     Front.Add("Reload script", (*) => Reload())
     Front.Add("Edit script", (*) => Run(A_ScriptFullPath))
@@ -356,3 +385,22 @@ NumpadMult::SetTimer(ToggleSpk, -1)
 ; ^!+Up::VolumeStep(1, 2)         ; mic gain +2%
 ; ^!+Down::VolumeStep(1, -2)
 
+
+;------------------------- Apply CONFIG -----------------------
+; A feature with enabled = false hands its key back to Windows: the key is
+; not captured, so it reaches the focused app like any other keystroke.
+ApplyConfig()
+
+ApplyConfig() {
+    Log("config  mic=" (CFG.mic.enabled ? "hotkey" : "no-hotkey")
+        . " toast=" (CFG.mic.toast ? "on" : "off")
+        . " | spk=" (CFG.spk.enabled ? "hotkey" : "no-hotkey")
+        . " toast=" (CFG.spk.toast ? "on" : "off")
+        . " | both=" (CFG.both.enabled ? "hotkey" : "no-hotkey")
+        . " | vol toast=" (CFG.vol.toast ? "on" : "off"))
+    for key, on in Map(
+        "NumpadSub",  CFG.mic.enabled,
+        "NumpadMult", CFG.spk.enabled
+    )
+        try Hotkey(key, on ? "On" : "Off")
+}

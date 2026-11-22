@@ -52,6 +52,53 @@ Right-click the tray icon for the same two actions plus **Reload script**,
 The script logs every press and any error to `%TEMP%\AudioHotkeys.log`, which is
 the first place to look when something misbehaves.
 
+## Turning features off, and their notifications
+
+Every feature has two switches, in the `CFG` block at the top of the script:
+
+```ahk
+CFG := {
+    mic:  { enabled: true, toast: true },   ; Numpad-  microphone mute toggle
+    spk:  { enabled: true, toast: true },   ; Numpad*  speakers mute toggle
+    both: { enabled: true, toast: true },   ; ^!+m     both devices at once
+    vol:  { enabled: true, toast: true }    ; volume steps
+}
+```
+
+| Field | `true` | `false` |
+| ----- | ------ | ------- |
+| `enabled` | the hotkey is live | the key is **not captured at all** — it reaches the focused app like any other keystroke, so `Numpad-` types `-` again. The tray menu item still works. |
+| `toast` | the confirmation appears | the feature acts silently |
+
+`enabled` is the one that frees a key for another program; `toast` only hides
+the panel.
+
+**Recipes**
+
+```ahk
+; keep the mic hotkey, hand Numpad* back to other applications
+mic:  { enabled: true,  toast: true  }
+spk:  { enabled: false, toast: true  }
+
+; mute without any on-screen confirmation
+mic:  { enabled: true,  toast: false }
+
+; run entirely silently
+mic:  { enabled: true,  toast: false }
+spk:  { enabled: true,  toast: false }
+```
+
+Apply with **Reload script** in the tray menu (or restart the script). To confirm
+what took effect, read the last `config …` line in `%TEMP%\AudioHotkeys.log`,
+which is written on every start:
+
+```
+config  mic=hotkey toast=on | spk=no-hotkey toast=off | both=hotkey | vol toast=on
+```
+
+`both` and `vol` only matter if you have uncommented their hotkeys — see
+[Optional extras](#optional-extras).
+
 ## Changing the keys
 
 Open the script and find the block near the bottom:
