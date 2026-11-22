@@ -38,8 +38,6 @@ Persistent
 CFG := {
     mic:  { enabled: true, toastMuted: true,  toastLive: true  },   ; Numpad-  microphone
     spk:  { enabled: true, toastMuted: true,  toastLive: true  },   ; Numpad*  speakers
-    both: { enabled: true, toastMuted: true,  toastLive: true  },   ; ^!+m     both devices
-    vol:  { enabled: true, toast: true }                            ; volume steps
 }
 
 ;------------------------- Diagnostics ------------------------
@@ -113,20 +111,6 @@ SetMute(flow, mute) {
     hr := DllCall(VT(epv, 14), "ptr", epv, "int", mute ? 1 : 0, "int")
     Rel(epv)
     return hr = 0
-}
-
-GetVolume(flow) {
-    epv := ActivateEndpoint(flow)
-    v := 0.0
-    DllCall(VT(epv, 9), "ptr", epv, "float*", &v)
-    Rel(epv)
-    return v
-}
-
-SetVolume(flow, scalar) {
-    epv := ActivateEndpoint(flow)
-    DllCall(VT(epv, 7), "ptr", epv, "float", Max(0.0, Min(1.0, scalar)), "ptr", 0, "int")
-    Rel(epv)
 }
 
 ;-------------------------- The HUD ---------------------------
@@ -240,20 +224,6 @@ AnnounceSpk() {
         Hud.Show(Chr(0xE767), "Speakers live", "", "EEEEEE")
 }
 
-AnnounceVolume(flow) {
-    if !CFG.vol.toast
-        return
-    pct := Round(GetVolume(flow) * 100)
-    muted := GetMute(flow)
-    filled := Round(pct / 5)
-    bar := ""
-    Loop 20
-        bar .= (A_Index <= filled) ? Chr(0x2588) : Chr(0x2591)
-    name := (flow = 1) ? "Mic" : "Speakers"
-    Hud.Show(Chr(0xE767), name "  " pct "%" (muted ? "  muted" : ""), bar
-           , muted ? "FF4B4B" : "EEEEEE", muted ? "FF8A8A" : "9A9A9F")
-}
-
 ;------------------------- Actions ----------------------------
 
 ; Every action is defensive: a thrown error used to raise a modal dialog from
@@ -278,28 +248,6 @@ ToggleSpk() {
         Log("spk toggle FAILED: " e.Message " @ " e.Line)
     }
 }
-ToggleBoth() {
-    try {
-        anyLive := !MicState() || !SpkState()
-        SetMute(1, anyLive)
-        SetMute(0, anyLive)
-        if (anyLive ? !CFG.both.toastMuted : !CFG.both.toastLive)
-            return
-        Hud.Show(anyLive ? Chr(0xE74F) : Chr(0xE767), anyLive ? "Both muted" : "Both live"
-               , "", anyLive ? "FF4B4B" : "4CC26A")
-    } catch as e {
-        Log("toggle both FAILED: " e.Message " @ " e.Line)
-    }
-}
-VolumeStep(flow, delta) {
-    try {
-        SetVolume(flow, GetVolume(flow) + delta / 100)
-        AnnounceVolume(flow)
-    } catch as e {
-        Log("volume FAILED: " e.Message " @ " e.Line)
-    }
-}
-
 ;------------------------- Exit safety ------------------------
 ;  On reload/exit, put both devices back the way they were found,
 ;  so the script can never leave you muted by accident.
@@ -331,7 +279,6 @@ BuildMenu() {
     MicItem := "Toggle microphone  (Numpad-)" (CFG.mic.enabled ? "" : "  [hotkey off]")
     Front.Add(MicItem, (*) => ToggleMic())
     Front.Add("Toggle speakers  (Numpad*)" (CFG.spk.enabled ? "" : "  [hotkey off]"), (*) => ToggleSpk())
-    Front.Add("Toggle both" (CFG.both.enabled ? "" : "  [hotkey off]"), (*) => ToggleBoth())
     Front.Add()
     Front.Add("Reload script", (*) => Reload())
     Front.Add("Edit script", (*) => Run(A_ScriptFullPath))
@@ -360,36 +307,6 @@ else
 NumpadSub::SetTimer(ToggleMic, -1)
 NumpadMult::SetTimer(ToggleSpk, -1)
 
-; --- parked until you want them: delete the ";" to re-enable ----
-; ^!v::                           ; mic: hold to mute
-; {
-;     SetMute(1, true)
-;     AnnounceMic()
-; }
-; ^!v Up::
-; {
-;     SetMute(1, false)
-;     AnnounceMic()
-; }
-; ^!+s::                          ; speakers: hold to mute
-; {
-;     SetMute(0, true)
-;     AnnounceSpk()
-; }
-; ^!+s Up::
-; {
-;     SetMute(0, false)
-;     AnnounceSpk()
-; }
-; ^!+m::ToggleBoth()              ; both at once
-; ^!Up::VolumeStep(0, 2)          ; speakers +2%  (^!arrows are the display-rotation keys here)
-; ^!Down::VolumeStep(0, -2)
-; ^!=::VolumeStep(0, 2)
-; ^!-::VolumeStep(0, -2)
-; ^!+Up::VolumeStep(1, 2)         ; mic gain +2%
-; ^!+Down::VolumeStep(1, -2)
-
-
 ;------------------------- Apply CONFIG -----------------------
 ; A feature with enabled = false hands its key back to Windows: the key is
 ; not captured, so it reaches the focused app like any other keystroke.
@@ -399,10 +316,7 @@ ApplyConfig() {
     Log("config  mic=" (CFG.mic.enabled ? "hotkey" : "no-hotkey")
         . " toast(muted=" (CFG.mic.toastMuted ? "on" : "off") ",live=" (CFG.mic.toastLive ? "on" : "off") ")"
         . " | spk=" (CFG.spk.enabled ? "hotkey" : "no-hotkey")
-        . " toast(muted=" (CFG.spk.toastMuted ? "on" : "off") ",live=" (CFG.spk.toastLive ? "on" : "off") ")"
-        . " | both=" (CFG.both.enabled ? "hotkey" : "no-hotkey")
-        . " toast(muted=" (CFG.both.toastMuted ? "on" : "off") ",live=" (CFG.both.toastLive ? "on" : "off") ")"
-        . " | vol toast=" (CFG.vol.toast ? "on" : "off"))
+        . " toast(muted=" (CFG.spk.toastMuted ? "on" : "off") ",live=" (CFG.spk.toastLive ? "on" : "off") ")")
     for key, on in Map(
         "NumpadSub",  CFG.mic.enabled,
         "NumpadMult", CFG.spk.enabled

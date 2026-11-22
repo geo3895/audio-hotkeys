@@ -60,8 +60,6 @@ Every feature has two switches, in the `CFG` block at the top of the script:
 CFG := {
     mic:  { enabled: true, toastMuted: true,  toastLive: true  },   ; Numpad-  microphone
     spk:  { enabled: true, toastMuted: true,  toastLive: true  },   ; Numpad*  speakers
-    both: { enabled: true, toastMuted: true,  toastLive: true  },   ; ^!+m     both devices
-    vol:  { enabled: true, toast: true }                            ; volume steps
 }
 ```
 
@@ -74,7 +72,6 @@ CFG := {
 `enabled` is the one that frees a key for another program. The two toast flags are
 independent, so a function can warn you in one direction only — being told "you
 are muted now" matters a lot more than being told "you are audible again".
-`vol` has no muted/live split; it has a single `toast`.
 
 **Recipes**
 
@@ -99,11 +96,9 @@ what took effect, read the last `config …` line in `%TEMP%\AudioHotkeys.log`,
 which is written on every start:
 
 ```
-config  mic=hotkey toast(muted=on,live=off) | spk=no-hotkey toast(muted=on,live=on) | both=hotkey toast(muted=on,live=on) | vol toast=on
+config  mic=hotkey toast(muted=on,live=off) | spk=hotkey toast(muted=on,live=on)
 ```
 
-`both` and `vol` only matter if you have uncommented their hotkeys — see
-[Optional extras](#optional-extras).
 
 ## Changing the keys
 
@@ -139,12 +134,6 @@ some Electron apps take others.
 Test a candidate by binding it, reloading and pressing it. If no toast appears,
 something else owns it — pick another. Bare keys (`Numpad-`, `Numpad*`, `F13`,
 mouse side buttons) almost never collide.
-
-### Optional extras
-
-Commented out at the bottom of the hotkey block: hold-to-talk, hold-to-mute for
-the speakers, toggle both devices, and volume steps. Remove the leading `;` to
-enable one (whole `{ ... }` blocks for the hold variants).
 
 ## Start with Windows
 
