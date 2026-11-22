@@ -58,34 +58,40 @@ Every feature has two switches, in the `CFG` block at the top of the script:
 
 ```ahk
 CFG := {
-    mic:  { enabled: true, toast: true },   ; Numpad-  microphone mute toggle
-    spk:  { enabled: true, toast: true },   ; Numpad*  speakers mute toggle
-    both: { enabled: true, toast: true },   ; ^!+m     both devices at once
-    vol:  { enabled: true, toast: true }    ; volume steps
+    mic:  { enabled: true, toastMuted: true,  toastLive: true  },   ; Numpad-  microphone
+    spk:  { enabled: true, toastMuted: true,  toastLive: true  },   ; Numpad*  speakers
+    both: { enabled: true, toastMuted: true,  toastLive: true  },   ; ^!+m     both devices
+    vol:  { enabled: true, toast: true }                            ; volume steps
 }
 ```
 
 | Field | `true` | `false` |
 | ----- | ------ | ------- |
 | `enabled` | the hotkey is live | the key is **not captured at all** — it reaches the focused app like any other keystroke, so `Numpad-` types `-` again. The tray menu item still works. |
-| `toast` | the confirmation appears | the feature acts silently |
+| `toastMuted` | show the panel when the device goes **muted** | stay silent on the way into mute |
+| `toastLive` | show the panel when the device goes **live** | stay silent on the way out of mute |
 
-`enabled` is the one that frees a key for another program; `toast` only hides
-the panel.
+`enabled` is the one that frees a key for another program. The two toast flags are
+independent, so a function can warn you in one direction only — being told "you
+are muted now" matters a lot more than being told "you are audible again".
+`vol` has no muted/live split; it has a single `toast`.
 
 **Recipes**
 
 ```ahk
-; keep the mic hotkey, hand Numpad* back to other applications
-mic:  { enabled: true,  toast: true  }
-spk:  { enabled: false, toast: true  }
+; only warn me when the mic goes muted, never when it comes back
+mic:  { enabled: true, toastMuted: true,  toastLive: false }
 
-; mute without any on-screen confirmation
-mic:  { enabled: true,  toast: false }
+; only warn on the way back to live
+mic:  { enabled: true, toastMuted: false, toastLive: true  }
+
+; keep the mic hotkey, hand Numpad* back to other applications
+mic:  { enabled: true,  toastMuted: true, toastLive: true  }
+spk:  { enabled: false, toastMuted: true, toastLive: true  }
 
 ; run entirely silently
-mic:  { enabled: true,  toast: false }
-spk:  { enabled: true,  toast: false }
+mic:  { enabled: true, toastMuted: false, toastLive: false }
+spk:  { enabled: true, toastMuted: false, toastLive: false }
 ```
 
 Apply with **Reload script** in the tray menu (or restart the script). To confirm
@@ -93,7 +99,7 @@ what took effect, read the last `config …` line in `%TEMP%\AudioHotkeys.log`,
 which is written on every start:
 
 ```
-config  mic=hotkey toast=on | spk=no-hotkey toast=off | both=hotkey | vol toast=on
+config  mic=hotkey toast(muted=on,live=off) | spk=no-hotkey toast(muted=on,live=on) | both=hotkey toast(muted=on,live=on) | vol toast=on
 ```
 
 `both` and `vol` only matter if you have uncommented their hotkeys — see

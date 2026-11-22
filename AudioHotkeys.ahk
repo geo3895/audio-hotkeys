@@ -27,16 +27,19 @@ Persistent
 ;                      focused app as a normal keystroke. The tray menu
 ;                      item still works, so the feature stays reachable.
 ;
-;   toast   : does this feature show the on-screen confirmation?
-;             false -> it still works, just silently.
+;   toastMuted : show the confirmation when the device becomes MUTED
+;   toastLive  : show the confirmation when the device becomes LIVE
+;             Setting one of them false keeps the other, so you can be
+;             warned that you went silent without being told you came back.
+;             `vol` has no muted/live split, so it just has `toast`.
 ;
 ; After editing, use "Reload script" in the tray menu.
 
 CFG := {
-    mic:  { enabled: true, toast: true },   ; Numpad-  microphone mute toggle
-    spk:  { enabled: true, toast: true },   ; Numpad*  speakers mute toggle
-    both: { enabled: true, toast: true },   ; ^!+m     both devices at once
-    vol:  { enabled: true, toast: true }    ; volume steps
+    mic:  { enabled: true, toastMuted: true,  toastLive: true  },   ; Numpad-  microphone
+    spk:  { enabled: true, toastMuted: true,  toastLive: true  },   ; Numpad*  speakers
+    both: { enabled: true, toastMuted: true,  toastLive: true  },   ; ^!+m     both devices
+    vol:  { enabled: true, toast: true }                            ; volume steps
 }
 
 ;------------------------- Diagnostics ------------------------
@@ -218,9 +221,9 @@ MicState() => GetMute(1)
 SpkState() => GetMute(0)
 
 AnnounceMic() {
-    if !CFG.mic.toast
-        return
     muted := MicState()
+    if (muted ? !CFG.mic.toastMuted : !CFG.mic.toastLive)
+        return
     if (muted)
         Hud.Show(Chr(0xE720), "Microphone muted", "", "FF4B4B")
     else
@@ -228,9 +231,9 @@ AnnounceMic() {
 }
 
 AnnounceSpk() {
-    if !CFG.spk.toast
-        return
     muted := SpkState()
+    if (muted ? !CFG.spk.toastMuted : !CFG.spk.toastLive)
+        return
     if (muted)
         Hud.Show(Chr(0xE74F), "Speakers muted", "", "FF4B4B")
     else
@@ -280,9 +283,10 @@ ToggleBoth() {
         anyLive := !MicState() || !SpkState()
         SetMute(1, anyLive)
         SetMute(0, anyLive)
-        if CFG.both.toast
-            Hud.Show(anyLive ? Chr(0xE74F) : Chr(0xE767), anyLive ? "Both muted" : "Both live"
-                   , "", anyLive ? "FF4B4B" : "4CC26A")
+        if (anyLive ? !CFG.both.toastMuted : !CFG.both.toastLive)
+            return
+        Hud.Show(anyLive ? Chr(0xE74F) : Chr(0xE767), anyLive ? "Both muted" : "Both live"
+               , "", anyLive ? "FF4B4B" : "4CC26A")
     } catch as e {
         Log("toggle both FAILED: " e.Message " @ " e.Line)
     }
@@ -393,10 +397,11 @@ ApplyConfig()
 
 ApplyConfig() {
     Log("config  mic=" (CFG.mic.enabled ? "hotkey" : "no-hotkey")
-        . " toast=" (CFG.mic.toast ? "on" : "off")
+        . " toast(muted=" (CFG.mic.toastMuted ? "on" : "off") ",live=" (CFG.mic.toastLive ? "on" : "off") ")"
         . " | spk=" (CFG.spk.enabled ? "hotkey" : "no-hotkey")
-        . " toast=" (CFG.spk.toast ? "on" : "off")
+        . " toast(muted=" (CFG.spk.toastMuted ? "on" : "off") ",live=" (CFG.spk.toastLive ? "on" : "off") ")"
         . " | both=" (CFG.both.enabled ? "hotkey" : "no-hotkey")
+        . " toast(muted=" (CFG.both.toastMuted ? "on" : "off") ",live=" (CFG.both.toastLive ? "on" : "off") ")"
         . " | vol toast=" (CFG.vol.toast ? "on" : "off"))
     for key, on in Map(
         "NumpadSub",  CFG.mic.enabled,
