@@ -54,74 +54,84 @@ the first place to look when something misbehaves.
 
 ## Turning features off, and their notifications
 
-Every feature has two switches, in the `CFG` block at the top of the script:
+Two tables at the top of the script control everything. `CFG` switches features
+on, off and quiet:
 
 ```ahk
-CFG := {
-    mic:  { enabled: true, toastMuted: true,  toastLive: true  },   ; Numpad-  microphone
-    spk:  { enabled: true, toastMuted: true,  toastLive: true  },   ; Numpad*  speakers
-}
+CFG := Map(
+    "mic", { enabled: true, toastMuted: true, toastLive: true },
+    "spk", { enabled: true, toastMuted: true, toastLive: true }
+)
 ```
 
 | Field | `true` | `false` |
 | ----- | ------ | ------- |
-| `enabled` | the hotkey is live | the key is **not captured at all** — it reaches the focused app like any other keystroke, so `Numpad-` types `-` again. The tray menu item still works. |
+| `enabled` | the hotkey is live | the key is **not captured at all** — it reaches the focused app like any other keystroke, so `Numpad-` types `-` again. The tray item still works, so the feature stays reachable. |
 | `toastMuted` | show the panel when the device goes **muted** | stay silent on the way into mute |
 | `toastLive` | show the panel when the device goes **live** | stay silent on the way out of mute |
 
-`enabled` is the one that frees a key for another program. The two toast flags are
-independent, so a function can warn you in one direction only — being told "you
-are muted now" matters a lot more than being told "you are audible again".
+The two toast flags are independent, so a feature can warn you in one direction
+only — being told "you are muted now" matters a lot more than being told "you
+are audible again".
 
-**Recipes**
+**Recipes** — replace the whole `CFG := Map( … )` with one of these:
 
 ```ahk
-; only warn me when the mic goes muted, never when it comes back
-mic:  { enabled: true, toastMuted: true,  toastLive: false }
+; warn me when the mic goes muted, stay quiet when it comes back
+CFG := Map(
+    "mic", { enabled: true, toastMuted: true, toastLive: false },
+    "spk", { enabled: true, toastMuted: true, toastLive: true }
+)
 
-; only warn on the way back to live
-mic:  { enabled: true, toastMuted: false, toastLive: true  }
-
-; keep the mic hotkey, hand Numpad* back to other applications
-mic:  { enabled: true,  toastMuted: true, toastLive: true  }
-spk:  { enabled: false, toastMuted: true, toastLive: true  }
+; hand Numpad* back to other applications, keep the mic hotkey
+CFG := Map(
+    "mic", { enabled: true,  toastMuted: true, toastLive: true },
+    "spk", { enabled: false, toastMuted: true, toastLive: true }
+)
 
 ; run entirely silently
-mic:  { enabled: true, toastMuted: false, toastLive: false }
-spk:  { enabled: true, toastMuted: false, toastLive: false }
+CFG := Map(
+    "mic", { enabled: true, toastMuted: false, toastLive: false },
+    "spk", { enabled: true, toastMuted: false, toastLive: false }
+)
 ```
 
 Apply with **Reload script** in the tray menu (or restart the script). To confirm
 what took effect, read the last `config …` line in `%TEMP%\AudioHotkeys.log`,
-which is written on every start:
+written on every start — a disabled feature shows `off` instead of a key:
 
 ```
-config  mic=hotkey toast(muted=on,live=off) | spk=hotkey toast(muted=on,live=on)
+config mic=NumpadSub toast(muted=on,live=on)  spk=off toast(muted=on,live=on)
 ```
-
 
 ## Changing the keys
 
-Open the script and find the block near the bottom:
+The keys live in the `DEV` table, next to everything else that differs between
+the two features:
 
 ```ahk
-;------------------------- HOTKEYS ----------------------------
-NumpadSub::SetTimer(ToggleMic, -1)
-NumpadMult::SetTimer(ToggleSpk, -1)
+DEV := Map()
+DEV["mic"] := { flow: 1, key: "NumpadSub", hint: "Numpad-"
+              , label: "Microphone", live: "4CC26A"
+              , glyphMuted: Chr(0xE720), glyphLive: Chr(0xE720) }
 ```
 
-Replace the part before `::` with your key:
+Change `key` and, if you like, `hint` (the spelling shown in the tray menu):
 
 ```ahk
-F13::SetTimer(ToggleMic, -1)          ; a dedicated keyboard/mouse macro key
-XButton1::SetTimer(ToggleMic, -1)     ; mouse side button
-^!m::SetTimer(ToggleMic, -1)          ; Ctrl+Alt+M  (^ Ctrl, ! Alt, + Shift, # Win)
-!s::SetTimer(ToggleSpk, -1)           ; Alt+S
+key: "F13"        ; a dedicated keyboard/mouse macro key
+key: "XButton1"   ; mouse side button
+key: "^!m"        ; Ctrl+Alt+M  (^ Ctrl, ! Alt, + Shift, # Win)
+key: "!s"         ; Alt+S
 ```
 
 Save, then choose **Reload script** in the tray menu. Key names are in the
 [AutoHotkey key list](https://www.autohotkey.com/docs/v2/KeyList.htm);
 `NumpadSub` is the keypad's `-`, `NumpadMult` its `*`.
+
+Because the same table feeds the hotkey, the tray label and the `enabled`
+switch, a rebind cannot fall out of step with them — there is only one place
+the key is written.
 
 ### If a new key does nothing
 
