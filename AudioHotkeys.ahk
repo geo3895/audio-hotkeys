@@ -1,0 +1,358 @@
+#Requires AutoHotkey v2.0
+#SingleInstance Force
+Persistent
+
+;=============================================================
+;  Audio Hotkeys  —  global mic / speaker mute toggles
+;-------------------------------------------------------------
+;  Default keys:   Numpad-  microphone mute toggle
+;                  Numpad*  speakers mute toggle
+;
+;  Edit the "HOTKEYS" block at the bottom to rebind anything.
+;  Everything else can stay as-is.
+;
+;  Controls the default capture / render device through the
+;  Windows Core Audio API (IAudioEndpointVolume). No drivers,
+;  no extra binaries, no admin rights needed for audio.
+;  See README.md for install, autostart and rebinding.
+;=============================================================
+
+;------------------------- Diagnostics ------------------------
+; A modal error dialog raised from a hotkey thread blocks the script's message
+; loop: the process stays alive but every hotkey goes dead and the keys fall
+; through to the focused app. Errors are logged instead, never shown.
+; Log: %TEMP%\AudioHotkeys.log
+
+LogFile := A_Temp "\AudioHotkeys.log"
+
+Log(msg) {
+    global LogFile
+    try FileAppend(FormatTime(A_Now, "yyyy-MM-dd HH:mm:ss") "  " msg "`n", LogFile)
+}
+
+LogError(err, mode) {
+    Log("ERROR [" mode "] " err.Message "   (" err.File ":" err.Line ")")
+    return 1
+}
+
+OnError(LogError)
+
+;------------------------- Core Audio ------------------------
+
+GUID(s) {
+    b := Buffer(16, 0)
+    if DllCall("ole32\CLSIDFromString", "wstr", s, "ptr", b, "int")
+        throw Error("CLSIDFromString failed: " s)
+    return b
+}
+VT(p, i) => NumGet(NumGet(p, "ptr") + i * A_PtrSize, "ptr")
+Rel(p) => DllCall(VT(p, 2), "ptr", p)
+
+; flow: 0 = render (speakers), 1 = capture (mic). role: 0 = console.
+ActivateEndpoint(flow) {
+    static CLSID_MMDeviceEnumerator := "{BCDE0395-E52F-467C-8E3D-C4579291692E}"
+    static IID_IMMDeviceEnumerator  := "{A95664D2-9614-4F35-A746-DE8DB63617E6}"
+    static IID_IAudioEndpointVolume := "{5CDF2C82-841E-4546-9722-0CF74078229A}"
+
+    enum := 0
+    hr := DllCall("ole32\CoCreateInstance", "ptr", GUID(CLSID_MMDeviceEnumerator), "ptr", 0
+                , "uint", 1, "ptr", GUID(IID_IMMDeviceEnumerator), "ptr*", &enum, "int")
+    if (hr != 0)
+        throw Error("CoCreateInstance failed (" hr ")")
+
+    dev := 0
+    hr := DllCall(VT(enum, 4), "ptr", enum, "int", flow, "int", 0, "ptr*", &dev, "int")
+    Rel(enum)
+    if (hr != 0)
+        throw Error("No default audio endpoint (" Format("{:#x}", hr) ")")
+
+    epv := 0
+    hr := DllCall(VT(dev, 3), "ptr", dev, "ptr", GUID(IID_IAudioEndpointVolume)
+                , "uint", 1, "ptr", 0, "ptr*", &epv, "int")
+    Rel(dev)
+    if (hr != 0)
+        throw Error("IAudioEndpointVolume unavailable (" Format("{:#x}", hr) ")")
+    return epv
+}
+
+GetMute(flow) {
+    epv := ActivateEndpoint(flow)
+    m := 0
+    DllCall(VT(epv, 15), "ptr", epv, "int*", &m)
+    Rel(epv)
+    return m
+}
+
+SetMute(flow, mute) {
+    epv := ActivateEndpoint(flow)
+    hr := DllCall(VT(epv, 14), "ptr", epv, "int", mute ? 1 : 0, "int")
+    Rel(epv)
+    return hr = 0
+}
+
+GetVolume(flow) {
+    epv := ActivateEndpoint(flow)
+    v := 0.0
+    DllCall(VT(epv, 9), "ptr", epv, "float*", &v)
+    Rel(epv)
+    return v
+}
+
+SetVolume(flow, scalar) {
+    epv := ActivateEndpoint(flow)
+    DllCall(VT(epv, 7), "ptr", epv, "float", Max(0.0, Min(1.0, scalar)), "ptr", 0, "int")
+    Rel(epv)
+}
+
+;-------------------------- The HUD ---------------------------
+;  Small rounded panel, top-right of the primary screen.
+;  Fades in, holds ~1s, fades out. Never takes focus.
+
+class Hud {
+    static gui := 0
+    static iconCtl := 0
+    static titleCtl := 0
+    static subCtl := 0
+    static alpha := 0
+    static phase := ""
+    static t0 := 0
+    static W := 330, H := 76, M := 24, Top := 56
+    static HoldMs := 950
+    static timer := 0
+
+    static Build() {
+        g := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x08000000 -DPIScale", "AudioHud")
+        g.BackColor := "1C1C1E"
+        g.SetFont("s20", "Segoe MDL2 Assets")
+        this.iconCtl := g.AddText("x18 y14 w34 h44 BackgroundTrans", "")
+        g.SetFont("s11 bold", "Segoe UI")
+        this.titleCtl := g.AddText("x60 y14 w250 h22 BackgroundTrans", "")
+        g.SetFont("s9 norm", "Segoe UI")
+        this.subCtl := g.AddText("x60 y38 w250 h20 BackgroundTrans", "")
+        this.gui := g
+    }
+
+    static Show(glyph, title, sub, color, subColor := "9A9A9F") {
+        if !this.gui
+            this.Build()
+        this.iconCtl.SetFont("c" color)
+        this.iconCtl.Text := glyph
+        this.titleCtl.SetFont("cEEEEEE")
+        this.titleCtl.Text := title
+        this.subCtl.SetFont("c" subColor)
+        this.subCtl.Text := sub
+
+        MonitorGetWorkArea(MonitorGetPrimary(), &l, &t, &r, &b)
+        this.gui.Show("NA x" (r - this.W - this.M) " y" (t + this.Top) " w" this.W " h" this.H)
+        this.Round(windowHwnd(this.gui))
+        this.alpha := 0
+        this.phase := "in"
+        this.t0 := A_TickCount
+        WinSetTransparent(0, this.gui)
+        if !this.timer
+            this.timer := this.Tick.Bind(this)
+        SetTimer(this.timer, 15)
+    }
+
+    static Round(hwnd) {
+        h := DllCall("gdi32\CreateRoundRectRgn", "int", 0, "int", 0, "int", this.W + 1
+                    , "int", this.H + 1, "int", 18, "int", 18, "ptr")
+        DllCall("user32\SetWindowRgn", "ptr", hwnd, "ptr", h, "int", 1)
+    }
+
+    static Tick() {
+        elapsed := A_TickCount - this.t0
+        switch this.phase {
+            case "in":
+                a := Min(242, elapsed * 242 / 140)
+                WinSetTransparent(Round(a), this.gui)
+                if (elapsed >= 140) {
+                    this.phase := "hold"
+                    this.t0 := A_TickCount
+                }
+            case "hold":
+                if (elapsed >= this.HoldMs) {
+                    this.phase := "out"
+                    this.t0 := A_TickCount
+                }
+            case "out":
+                a := Max(0, 242 - elapsed * 242 / 220)
+                WinSetTransparent(Round(a), this.gui)
+                if (elapsed >= 220) {
+                    SetTimer(this.timer, 0)
+                    this.gui.Hide()
+                    WinSetTransparent(255, this.gui)
+                    this.phase := ""
+                }
+        }
+    }
+}
+
+windowHwnd(g) => g.Hwnd
+
+;------------------------- State ------------------------------
+
+MicState() => GetMute(1)
+SpkState() => GetMute(0)
+
+AnnounceMic() {
+    muted := MicState()
+    if (muted)
+        Hud.Show(Chr(0xE720), "Microphone muted", "Press again to unmute", "FF4B4B", "FF8A8A")
+    else
+        Hud.Show(Chr(0xE720), "Microphone unmuted", "Press again to mute", "4CC26A", "8FCFA1")
+}
+
+AnnounceSpk() {
+    muted := SpkState()
+    if (muted)
+        Hud.Show(Chr(0xE74F), "Speakers deafen", "Press again to unmute", "FF4B4B", "FF8A8A")
+    else
+        Hud.Show(Chr(0xE767), "Speakers undeafen", "Press again to mute", "EEEEEE", "9A9A9F")
+}
+
+AnnounceVolume(flow) {
+    pct := Round(GetVolume(flow) * 100)
+    muted := GetMute(flow)
+    filled := Round(pct / 5)
+    bar := ""
+    Loop 20
+        bar .= (A_Index <= filled) ? Chr(0x2588) : Chr(0x2591)
+    name := (flow = 1) ? "Microphone" : "Speakers"
+    Hud.Show(Chr(0xE767), name "  " pct "%", (muted ? "muted  " : "") bar
+           , muted ? "FF4B4B" : "EEEEEE", muted ? "FF8A8A" : "9A9A9F")
+}
+
+;------------------------- Actions ----------------------------
+
+; Every action is defensive: a thrown error used to raise a modal dialog from
+; inside a hotkey thread, which blocks the script's message loop — the process
+; stays alive but every hotkey stops working and the keys fall through to the
+; focused app. Errors are logged instead, and never shown.
+ToggleMic() {
+    try {
+        Log("mic toggle")
+        SetMute(1, !MicState())
+        AnnounceMic()
+    } catch as e {
+        Log("mic toggle FAILED: " e.Message " @ " e.Line)
+    }
+}
+ToggleSpk() {
+    try {
+        Log("spk toggle")
+        SetMute(0, !SpkState())
+        AnnounceSpk()
+    } catch as e {
+        Log("spk toggle FAILED: " e.Message " @ " e.Line)
+    }
+}
+ToggleBoth() {
+    try {
+        anyLive := !MicState() || !SpkState()
+        SetMute(1, anyLive)
+        SetMute(0, anyLive)
+        Hud.Show(anyLive ? Chr(0xE74F) : Chr(0xE767), anyLive ? "Mic + speakers muted" : "Mic + speakers live"
+               , "Press again to toggle both", anyLive ? "FF4B4B" : "4CC26A", anyLive ? "FF8A8A" : "8FCFA1")
+    } catch as e {
+        Log("toggle both FAILED: " e.Message " @ " e.Line)
+    }
+}
+VolumeStep(flow, delta) {
+    try {
+        SetVolume(flow, GetVolume(flow) + delta / 100)
+        AnnounceVolume(flow)
+    } catch as e {
+        Log("volume FAILED: " e.Message " @ " e.Line)
+    }
+}
+
+;------------------------- Exit safety ------------------------
+;  On reload/exit, put both devices back the way they were found,
+;  so the script can never leave you muted by accident.
+
+; Slurp the starting state, but never let a missing/disabled device abort startup.
+try StartMic := GetMute(1)
+catch {
+    StartMic := 0
+    Log("no default microphone at startup")
+}
+try StartSpk := GetMute(0)
+catch {
+    StartSpk := 0
+    Log("no default output device at startup")
+}
+
+OnExit(Restore)
+
+Restore(*) {
+    try SetMute(1, StartMic)
+    try SetMute(0, StartSpk)
+}
+
+;------------------------- Tray menu --------------------------
+
+BuildMenu() {
+    Front := A_TrayMenu
+    Front.Delete()
+    MicItem := "Toggle microphone  (Numpad-)"
+    Front.Add(MicItem, (*) => ToggleMic())
+    Front.Add("Toggle speakers  (Numpad*)", (*) => ToggleSpk())
+    Front.Add("Toggle both", (*) => ToggleBoth())
+    Front.Add()
+    Front.Add("Reload script", (*) => Reload())
+    Front.Add("Edit script", (*) => Run(A_ScriptFullPath))
+    Front.Add("Open folder", (*) => Run(A_ScriptDir))
+    Front.Add()
+    Front.Add("Exit", (*) => ExitApp())
+    Front.Default := MicItem
+}
+try BuildMenu()
+
+Log("started  admin=" A_IsAdmin "  exe=" A_AhkPath)
+
+; Elevation is optional and only affects whether hotkeys fire while an
+; administrator window has focus. Muting works in either case.
+if A_IsAdmin
+    A_IconTip := "Audio Hotkeys - elevated (hotkeys also work over admin windows)"
+else
+    A_IconTip := "Audio Hotkeys - hotkeys skip admin windows (optional fix in README)"
+
+;------------------------- HOTKEYS ----------------------------
+;  Toggles only, single keys, no modifiers:
+;    Numpad-  (NumpadSub)  -> microphone mute toggle
+;    Numpad*  (NumpadMult) -> speakers mute toggle
+;  ^ = Ctrl  ! = Alt  + = Shift  # = Win, if you ever want combos.
+
+NumpadSub::SetTimer(ToggleMic, -1)
+NumpadMult::SetTimer(ToggleSpk, -1)
+
+; --- parked until you want them: delete the ";" to re-enable ----
+; ^!v::                           ; mic: hold to mute
+; {
+;     SetMute(1, true)
+;     AnnounceMic()
+; }
+; ^!v Up::
+; {
+;     SetMute(1, false)
+;     AnnounceMic()
+; }
+; ^!+s::                          ; speakers: hold to mute
+; {
+;     SetMute(0, true)
+;     AnnounceSpk()
+; }
+; ^!+s Up::
+; {
+;     SetMute(0, false)
+;     AnnounceSpk()
+; }
+; ^!+m::ToggleBoth()              ; both at once
+; ^!Up::VolumeStep(0, 2)          ; speakers +2%  (^!arrows are the display-rotation keys here)
+; ^!Down::VolumeStep(0, -2)
+; ^!=::VolumeStep(0, 2)
+; ^!-::VolumeStep(0, -2)
+; ^!+Up::VolumeStep(1, 2)         ; mic gain +2%
+; ^!+Down::VolumeStep(1, -2)
+
